@@ -1,0 +1,192 @@
+# simple NN with pytorch syntax explained
+# the structure is:
+
+# code line 1
+# comment explaining that code on the next line (line 2)
+
+# Read the comments if you don't understand pytorch syntax (like I did before coding this)! 
+# I'll try and teach each step. 
+
+# -----------------------
+# 1) Imports
+# -----------------------
+
+import torch
+import torch.nn as nn
+# import torch (pytorch), and create a shortcut that nn means torch.nn
+from torch.optim import SGD
+# SGD = Stochastic Gradient Descent, for backprop. 
+# You can google the technique or watch 3blue1brown's video on it (deep learning, chapter 2).
+
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+# these 3 are very common Python libraries, and their common abbreviations! You should learn them. 
+from torch.optim.lr_scheduler import ExponentialLR
+# adds an easy way to change learning rate over time
+
+# -----------------------
+# 2) Generate Data
+# -----------------------
+
+np.random.seed(91866)
+torch.manual_seed(2187)
+# use a seed so it's reproducible
+x = np.random.rand(100, 1)
+# makes np array of shape 100 by 1 (100 rows, 1 column, column vector), picks each value from a uniform dist from 0 to 1
+y = 2*x + 1 + .1 * np.random.randn(100, 1)
+# note that it is np.random.randn (normal dist), not np.random.rand (uniform dist)
+# makes np array y where for each x, the corresponding y = 2x + 1,
+# along with adding a randomization value (.1 * normal dist answer)
+
+idx = np.arange(100)
+# Define idx = evenly spaced 100 values (all ints 0 to 99)
+np.random.shuffle(idx)
+# shuffles idx, so now idx is a random ordering of the values 0 to 99
+# we want to reduce bias in train/val split, we need to make sure theres no factor that makes the first 80 values different from the last 20 values
+
+train_idx = idx[:80]
+# uses first 80 random indices for train
+
+val_idx = idx[80:]
+# uses remaining indices (20 here) for val
+
+
+# numpy fancy indexing, can take list[list] and it will give you the values of the 1st list at all the indices of the 2nd list, and put them into a list
+# taking xt as an example, x[train_idx] is equivalent to [x[i] for i in train_idx]
+# or:
+# for i in range(len(train_idx)):
+#    xt.append(x[train_idx[i]])
+# same thing works for yt, xv, yv, with some values switched out for their corresponding versions
+
+xt, yt = x[train_idx], y[train_idx]
+xv, yv = x[val_idx], y[val_idx]
+
+
+# make a scatter plot and show it (for just training data, not val data)
+plt.scatter(xt, yt)
+plt.show()
+
+# -----------------------
+# 3) Data Processing
+# -----------------------
+
+# Reshape list of ints to become a tensor of floats 
+# reshape(-1, 1) makes it a column vector (1 column, -1 rows)
+# -1 rows is an intentional value you would never use regularly
+# to mark that you want numpy to automatically figure it out. 
+x_train = xt.reshape(-1, 1).astype('float32')
+x_train = torch.tensor(x_train)
+y_train = yt.reshape(-1, 1).astype('float32')
+y_train = torch.tensor(y_train)
+# we use 'float32' because modern GPUs/CPUs are optimized for float32 operations, and it's more than precise enough for our needs
+
+# -----------------------
+# 4) NN Structure
+# -----------------------
+
+class MyNetwork(nn.Module):
+# Create MyNetwork extending the builtin nn.Module 
+ def __init__(self):
+   super().__init__()  
+   # make sure to init the parent class too
+   # now do your defining of neuron parameters
+
+   # Here, we just do 1 neuron to 1 neuron
+   # This is represented by defining m1 as a linear layer (nn.Linear) with 1 input and 1 output  
+   self.m1 = nn.Linear(1, 1)
+   self.m2 = nn.Linear(1, 1)
+  
+ def forward(self, x):
+   # function you need to define, this is the forward pass
+   x = self.m1(x)
+   # self = MyNetwork, so self.m1 is equivalent to MyNetwork.m1(x)
+
+   # m1 is a builtin attribute of the nn.Module class, which is what this class extends
+   # and thus all attributes of the nn.Module class are available to this class when running questions
+   # we use builtin attributes a lot in general, so we don't have to define everything from scratch  
+   # the annoying part in NN coding (for me at least) is knowing which attributes exist as options hidden in nn.Module
+   x = torch.relu(x); 
+   x = self.m2(x)
+   return x
+
+
+# -----------------------
+# 5) NN Training
+# -----------------------
+
+
+my_network = MyNetwork()
+# create my_network as an instance of the class MyNetwork 
+my_parameters = my_network.parameters()
+my_sgd = SGD(my_parameters, lr=1e-2)
+# create an instance of the SGD class 
+# SGD = stochastic gradient descent (again, check out the 3b1b video on it!)
+# lr = learning rate, how big of a step to take each time
+
+num_epochs = 200
+# num is changeable, number of times to loop through the training data and update weights 
+
+scheduler = ExponentialLR(my_sgd, gamma=0.95) 
+
+for epoch in range(num_epochs):
+  # acccess the param_groups attribute of the SGD class and specifically set the "lr"  part to our new lr. 
+ loss_list = []
+ for x, y in zip(x_train, y_train):
+   # zip: converts to tuples so it's nicer. do backprop for each value.
+   # so x and y are a specific value of the x_train and y_train lists
+
+   my_sgd.zero_grad()
+   # reset the gradients because torch lets you update the grads when you want 
+   # if you have a really big model it's more optimal to backprop in batches (10 vals, then backprop)
+   # but we don't have a big model, so we just reset the grads each value  
+   my_network_output = my_network(x)
+   # my_network(x) is mapped to my_network.forward(x), they would output the same thing 
+   loss = torch.mean((my_network_output - y)**2)
+   # compare our tensor output (a number) to our specific value of list (a number)
+   # then take mean squared error (average of squared differences between predicted and actual value)
+   # we square the differences so that negative and positive differences don't cancel out, and so that larger differences matter more
+   loss_list.append(loss.item())
+   # loss.item() because loss is technically a 0d tensor (one number), so we use the built in .item() to conv to a number
+   loss.backward()
+   # the backprop, we use the builtin .backward() function of tensors to do backprop on the loss
+   my_sgd.step()
+   # do a step of gradient descent
+
+ scheduler.step()
+ # update the learning rate
+ print(f"epoch: {epoch+1}, avg_loss: {sum(loss_list)/len(loss_list)}")
+ #after we checked all the values, print the epoch and average loss so you can (hopefully) see it going down
+
+# -----------------------
+# 6) NN Validation
+# -----------------------
+
+for p in my_network.parameters():
+ print(f"parameters: {p}")
+#print parameters so we can see what the final state of the NN actually is
+
+from sklearn.metrics import r2_score
+x_vali = xv.reshape(-1, 1).astype('float32')
+y_vali = yv.reshape(-1, 1).astype('float32')
+# same thing, except for the xv/yv datasets we formed at the start to be validation data
+
+with torch.no_grad():
+ # we don't need to track gradients during validation, so we skip it
+ y_pred = my_network(torch.tensor(x_vali))
+
+# again shorthand syntax, my_network(list) returns a list of its predictions for each number in the list
+y_pred = y_pred.detach().numpy()
+# .detach() detaches it from the network so it's not tracking backprop stuff
+# (this is how we ran backprop on TENSORS earlier and not the nn, and it worked)
+# and .numpy() convs tensor to np array, which is what sklearn operates on. 
+
+r2 = r2_score(y_vali, y_pred)
+# r2 (r^2) score is a common regression metric, it measures how well the predicted values match the actual values
+# 1 = max good, 0 = just predicting the mean of the actual values, negative = worse than just predicting mean
+
+print(f"r^2 score: {r2}")
+
+
+
+
